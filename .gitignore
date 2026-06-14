@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Env / secrets
+.env
+*.local
+# External DB connections (may contain credentials) — keep the template only
+connections.yaml
+
+# Data (large datasets / generated dbs) — keep the folder, ignore contents
+/data/*
+!/data/.gitkeep
+
+# Eval outputs
+/eval/results/*
+!/eval/results/.gitkeep
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Caches
+.pytest_cache/
+.ruff_cache/

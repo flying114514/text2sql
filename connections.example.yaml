@@ -1,0 +1,29 @@
+# External database connections (Phase 9).
+#
+# Copy this file to `connections.yaml` (which is gitignored) and fill in your
+# databases. Each source is reachable via a SQLAlchemy URL. To keep secrets out
+# of this file, you can reference environment variables (set them in `.env`)
+# with the ${VAR} syntax — they are expanded at load time.
+#
+# Local SQLite databases (the sample DB and any downloaded Spider DBs) are
+# discovered automatically; you do NOT list them here.
+#
+# Drivers (install the one you need):
+#   Postgres:  uv add "psycopg2-binary"      ->  postgresql+psycopg2://...
+#   MySQL:     uv add "pymysql"              ->  mysql+pymysql://...
+#
+# SECURITY: point these at a READ-ONLY database account. The agent also blocks
+# non-SELECT SQL and runs every query in a read-only, time-bounded transaction,
+# but a least-privilege account is the real safety net.
+
+sources:
+  - id: shop
+    label: "生产只读库 (Postgres)"
+    dialect: postgresql
+    # password comes from PG_PASSWORD in .env, not committed here
+    url: "postgresql+psycopg2://readonly:${PG_PASSWORD}@localhost:5432/shop"
+
+  # - id: analytics
+  #   label: "分析库 (MySQL)"
+  #   dialect: mysql
+  #   url: "mysql+pymysql://readonly:${MYSQL_PASSWORD}@localhost:3306/analytics"

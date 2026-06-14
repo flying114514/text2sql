@@ -1,0 +1,93 @@
+[
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "How many customers are there?",
+    "gold_sql": "SELECT COUNT(*) FROM customers"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "How many products are in the Furniture category?",
+    "gold_sql": "SELECT COUNT(*) FROM products WHERE category = 'Furniture'"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "What is the highest product price?",
+    "gold_sql": "SELECT MAX(price) FROM products"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "What is the average price of all products?",
+    "gold_sql": "SELECT AVG(price) FROM products"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "Which city has the most customers? Return only the city name.",
+    "gold_sql": "SELECT city FROM customers GROUP BY city ORDER BY COUNT(*) DESC LIMIT 1"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "How many orders have the status 'completed'?",
+    "gold_sql": "SELECT COUNT(*) FROM orders WHERE status = 'completed'"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "What is the total sales amount of all completed orders?",
+    "gold_sql": "SELECT SUM(p.price * oi.quantity) FROM orders o JOIN order_items oi ON o.id = oi.order_id JOIN products p ON oi.product_id = p.id WHERE o.status = 'completed'"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "How many distinct product categories are there?",
+    "gold_sql": "SELECT COUNT(DISTINCT category) FROM products"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "List the names of all customers from Beijing.",
+    "gold_sql": "SELECT name FROM customers WHERE city = 'Beijing'"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "What is the name of the cheapest product?",
+    "gold_sql": "SELECT name FROM products ORDER BY price ASC LIMIT 1"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "What is the total quantity of items across all order items?",
+    "gold_sql": "SELECT SUM(quantity) FROM order_items"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "Which customer placed the most orders? Return the customer name.",
+    "gold_sql": "SELECT c.name FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id ORDER BY COUNT(*) DESC LIMIT 1"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "How many customers signed up in 2024?",
+    "gold_sql": "SELECT COUNT(*) FROM customers WHERE signup_date LIKE '2024%'"
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "List all product names ordered from most expensive to cheapest.",
+    "gold_sql": "SELECT name FROM products ORDER BY price DESC",
+    "order_matters": true
+  },
+  {
+    "db_id": "sample",
+    "db_path": "sample.sqlite",
+    "question": "How many electronics products cost more than 100?",
+    "gold_sql": "SELECT COUNT(*) FROM products WHERE category = 'Electronics' AND price > 100"
+  }
+]

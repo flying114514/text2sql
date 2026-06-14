@@ -1,0 +1,65 @@
+# 业务语义层 —— 电商订单库(shop_pg / sample 共用同一套电商 schema)
+#
+# 这份文件描述「schema 表达不了的业务知识」:术语口径、指标算法、JOIN 路径、
+# 敏感字段。它会被渲染进生成提示词,让模型把用户口中的「GMV」「客单价」「大客户」
+# 翻译成本库正确的 SQL —— 解决「语法对、口径错」这个 Text2SQL 的头号落地难题。
+#
+# 它是「业务定义」而非密钥,所以提交进 git(对照:connections.yaml 含密码,被 gitignore)。
+
+description: 电商订单库。客户(customers)下订单(orders),每个订单含若干商品明细(order_items),明细指向商品(products)。订单有 completed / cancelled 两种状态。
+
+# 用户口中的词 → 在本库如何表达
+glossary:
+  - term: GMV
+    aliases: [成交额, 销售额, 营业额, 交易额, 营收, 销售总额]
+    means: 已完成订单的商品销售总额,等于 SUM(order_items.quantity * products.price),且只统计 orders.status = 'completed' 的订单。
+
+  - term: 客单价
+    aliases: [平均订单金额, AOV, 单均价]
+    means: GMV 除以已完成订单数,即 SUM(order_items.quantity * products.price) / COUNT(DISTINCT orders.id),范围限定 status = 'completed'。
+
+  - term: 活跃客户
+    aliases: [活跃用户, 有效客户]
+    means: 在统计区间内至少有一笔已完成订单(status = 'completed')的客户。
+
+  - term: 大客户
+    aliases: [重要客户, 高价值客户, VIP]
+    means: 按累计成交额(GMV)排序靠前的客户;无特别说明时取 GMV 最高的前几名。
+
+  - term: 复购客户
+    aliases: [回头客, 复购]
+    means: 拥有两笔及以上已完成订单的客户,即 COUNT(已完成 orders) >= 2。
+
+  - term: 畅销商品
+    aliases: [热销商品, 爆款, 卖得最好]
+    means: 按销量(已完成订单中 SUM(order_items.quantity))或销售额排序靠前的商品。
+
+# 指标口径(可直接给出 SQL 片段或筛选条件)
+metrics:
+  - name: 订单金额 / 销售额
+    sql: "SUM(oi.quantity * p.price)"
+    note: 需 JOIN order_items oi 与 products p;本库订单明细不直接存金额,必须用单价 × 数量算。
+
+  - name: 已完成订单
+    filter: "orders.status = 'completed'"
+    note: 计算任何销售/营收类指标时默认加此过滤,排除 cancelled。
+
+  - name: 订单数
+    sql: "COUNT(DISTINCT orders.id)"
+
+# 推荐 JOIN 路径(按此连接,勿臆测关系)
+joins:
+  - "order_items.order_id = orders.id"
+  - "order_items.product_id = products.id"
+  - "orders.customer_id = customers.id"
+
+# 口径规则(务必遵守)
+rules:
+  - 计算 GMV / 销售额 / 营收 / 客单价 等金额类指标时,默认只统计 orders.status = 'completed' 的订单,排除 cancelled。
+  - 订单/商品的金额一律用 order_items.quantity * products.price 计算,本库没有现成的金额列。
+  - '"畅销/热销"无特别说明时按销量(quantity 之和)排序;问"卖得多少钱"才按销售额。'
+  - 涉及"每个客户/每个商品/每个城市"的汇总,优先用对应维度 GROUP BY。
+
+# 敏感字段(PII)—— P9b 仅声明 + 提示;真正脱敏在 P10 实现
+pii:
+  - customers.name

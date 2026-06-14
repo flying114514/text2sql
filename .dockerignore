@@ -1,0 +1,22 @@
+# Build context excludes — keep the image small and secrets out of it.
+.git/
+.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Secrets / host-specific config — provided at runtime via env_file, not baked in
+.env
+connections.yaml
+
+# Generated data / datasets — the sample DB is rebuilt inside the container
+data/
+eval/results/
+
+# Local docs / IDE
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

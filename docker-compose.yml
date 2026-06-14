@@ -1,0 +1,40 @@
+# One-command demo: `docker compose up --build` → http://127.0.0.1:8000
+#
+# Brings up Postgres + the app. The app's entrypoint builds the SQLite sample
+# DB, seeds the Postgres governance demo (data + read-only role), and serves the
+# web UI. You need a .env with your LLM key first: `cp .env.example .env`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shop
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    healthcheck:
+      # the app waits for this before seeding, so the seed never races startup
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shop"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    # Not published to the host — only the app talks to it (on the compose net).
+    # Uncomment to inspect from the host (host 5434 avoids clashing with a
+    # manually-run t2s-postgres on 5433):
+    # ports:
+    #   - "5434:5432"
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env                       # your LLM_API_KEY / LLM_BASE_URL / LLM_MODEL
+    environment:
+      # readonly role password — used both to provision the role and to expand
+      # ${PG_PASSWORD} in connections.docker.yaml, so the two always match
+      PG_PASSWORD: ${PG_PASSWORD:-ro_pw_2026}
+      # admin URL the entrypoint uses to seed + create the read-only role
+      PG_ADMIN_URL: "postgresql+psycopg2://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/shop"
+    ports:
+      - "8000:8000"

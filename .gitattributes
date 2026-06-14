@@ -1,0 +1,8 @@
+# Normalize line endings: store everything as LF in the repo, regardless of OS.
+* text=auto eol=lf
+
+# Binary assets — never normalize.
+*.sqlite binary
+*.png binary
+*.jpg binary
+*.ico binary

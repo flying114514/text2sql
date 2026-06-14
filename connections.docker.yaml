@@ -1,0 +1,13 @@
+# Connections used by the docker-compose stack ONLY.
+#
+# Inside the compose network the app reaches Postgres at the service hostname
+# `postgres` (not localhost:5433 like the manual host setup). The entrypoint
+# copies this file to connections.yaml at startup.
+#
+# No secret here: the read-only password is injected via ${PG_PASSWORD}.
+
+sources:
+  - id: shop
+    label: "电商只读库 (Postgres · docker)"
+    dialect: postgresql
+    url: "postgresql+psycopg2://readonly:${PG_PASSWORD}@postgres:5432/shop"

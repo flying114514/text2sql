@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Text2SQL 智能体</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f6f6f7; --surface:#ffffff; --ink:#18181b; --ink-2:#3f3f46;
+    --muted:#71717a; --faint:#a1a1aa; --line:#ececef; --line-2:#e2e2e6;
+    --accent:#15795f; --accent-ink:#0f5a47; --accent-weak:#eef6f2;
+    --danger:#b4332a; --danger-weak:#fbf0ef;
+    --mono:"Cascadia Code","JetBrains Mono",Consolas,ui-monospace,monospace;
+    --sans:"PingFang SC","Microsoft YaHei","Hiragino Sans GB","Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{font-family:var(--sans);color:var(--ink);background:var(--bg);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;line-height:1.6}
+  ::selection{background:var(--accent-weak)}
+  .wrap{max-width:880px;margin:0 auto;padding:40px 24px 120px}
+
+  header{display:flex;align-items:center;justify-content:space-between;gap:20px;
+    padding-bottom:20px;margin-bottom:28px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:13px}
+  .mark{width:36px;height:36px;border-radius:9px;background:var(--ink);color:#fff;
+    display:grid;place-items:center;font-family:var(--mono);font-weight:600;font-size:14px;letter-spacing:-.5px}
+  .brand h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .brand .desc{font-size:12.5px;color:var(--muted);margin-top:1px}
+  .metrics{display:flex;align-items:center;gap:0}
+  .metric{padding:0 16px;text-align:right;border-left:1px solid var(--line)}
+  .metric:first-child{border-left:none}
+  .metric .v{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+  .metric .k{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-top:1px}
+
+  .panel{background:var(--surface);border:1px solid var(--line-2);border-radius:14px;
+    box-shadow:0 1px 2px rgba(24,24,27,.03),0 8px 24px -16px rgba(24,24,27,.18);overflow:hidden}
+  .dbrow{display:flex;align-items:center;gap:10px;padding:12px 16px 6px}
+  .dbrow .eyebrow{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em;white-space:nowrap}
+  select,input{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line-2);
+    border-radius:8px;padding:7px 11px;outline:none;transition:border-color .15s,box-shadow .15s}
+  select{cursor:pointer}
+  select:hover{border-color:var(--faint)}
+  select:focus,input:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-weak)}
+  #db{flex:1;font-weight:500}
+  textarea{width:100%;font:inherit;font-size:16px;line-height:1.55;color:var(--ink);border:none;outline:none;
+    resize:none;padding:8px 16px 4px;min-height:54px;background:transparent;text-wrap:pretty}
+  textarea::placeholder{color:var(--faint)}
+  .toolbar{display:flex;align-items:center;gap:14px;padding:10px 14px 12px;border-top:1px solid var(--line);
+    background:#fcfcfd;flex-wrap:wrap}
+  .opt{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+  .opt select,.opt input{padding:5px 8px;border-radius:7px;font-size:12.5px}
+  .opt input{width:48px;text-align:center;font-family:var(--mono)}
+  .opt input[type=checkbox]{width:auto;cursor:pointer}
+  .grow{flex:1}
+  .btn{border:none;cursor:pointer;background:var(--ink);color:#fff;font-family:var(--sans);font-weight:500;
+    font-size:14px;padding:9px 20px;border-radius:9px;display:inline-flex;align-items:center;gap:8px;
+    transition:transform .12s ease,background .15s,opacity .15s}
+  .btn:hover{background:#000}
+  .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.5;cursor:default;transform:none}
+  .ghost{background:transparent;color:var(--muted);border:1px solid var(--line-2);font-size:12.5px;padding:6px 12px;border-radius:8px;cursor:pointer}
+  .ghost:hover{border-color:var(--faint);color:var(--ink)}
+  .spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;
+    border-radius:50%;animation:r .7s linear infinite;display:none}
+  @keyframes r{to{transform:rotate(360deg)}}
+
+  .ex-hint{font-size:12px;color:var(--faint);margin:24px 0 10px;text-transform:uppercase;letter-spacing:.06em}
+  .examples{display:flex;flex-wrap:wrap;gap:8px}
+  .ex{font-size:13px;color:var(--ink-2);background:var(--surface);border:1px solid var(--line-2);
+    border-radius:999px;padding:7px 14px;cursor:pointer;transition:all .15s}
+  .ex:hover{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-weak)}
+
+  /* conversation thread */
+  #thread{margin-top:8px}
+  .threadbar{display:flex;justify-content:space-between;align-items:center;margin:26px 0 6px}
+  .threadbar .t{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+  .turn{margin-top:22px}
+  .turn.user{display:flex;justify-content:flex-end}
+  .bubble-user{background:var(--ink);color:#fff;border-radius:14px 14px 4px 14px;padding:10px 15px;
+    font-size:14.5px;max-width:78%;text-wrap:pretty}
+  .pending{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13.5px;padding:4px 2px}
+  .dots{display:inline-flex;gap:4px}
+  .dots i{width:6px;height:6px;border-radius:50%;background:var(--faint);animation:b 1.2s infinite ease-in-out}
+  .dots i:nth-child(2){animation-delay:.18s}.dots i:nth-child(3){animation-delay:.36s}
+  @keyframes b{0%,80%,100%{opacity:.3}40%{opacity:1}}
+
+  .clarify-card{background:var(--accent-weak);border:1px solid #cfe7dd;border-radius:14px;padding:16px 18px}
+  .clarify-card .eyebrow{font-size:11px;color:var(--accent-ink);text-transform:uppercase;letter-spacing:.09em;font-weight:700;margin-bottom:7px}
+  .clarify-card .q{font-size:15.5px;color:var(--ink);font-weight:500;text-wrap:pretty}
+  .clarify-card .hint{font-size:12.5px;color:var(--muted);margin-top:8px}
+
+  .denied-card{background:var(--danger-weak);border:1px solid #f0d4d1;border-radius:14px;padding:16px 18px}
+  .denied-card .eyebrow{font-size:11px;color:var(--danger);text-transform:uppercase;letter-spacing:.09em;font-weight:700;margin-bottom:7px;display:flex;align-items:center;gap:7px}
+  .denied-card .q{font-size:15px;color:var(--ink);font-weight:500;text-wrap:pretty}
+  .denied-card .hint{font-size:12.5px;color:var(--muted);margin-top:8px}
+  .badge.gov{color:#8a5a00;background:#fdf4e3}
+  .badge.cache{color:#5b54c9;background:#f0effb}
+  .badge.learn{color:var(--accent-ink);background:var(--accent-weak)}
+
+  .feedback{display:flex;align-items:center;gap:8px;margin:2px 0 18px;font-size:13px;color:var(--muted)}
+  .feedback .q{margin-right:2px}
+  .fb-btn{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);font-family:var(--sans);
+    font-size:13px;padding:5px 12px;border-radius:8px;cursor:pointer;transition:all .15s}
+  .fb-btn:hover{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-weak)}
+  .fb-btn.down:hover{border-color:var(--danger);color:var(--danger);background:var(--danger-weak)}
+  .fb-done{font-size:13px;color:var(--accent-ink);display:inline-flex;align-items:center;gap:6px}
+  .fb-btn.pin:hover{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-weak)}
+
+  /* dashboard (P11c) */
+  #dashboard{margin:4px 0 30px}
+  .dashhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}
+  .dashhead .t{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+  .card{background:var(--surface);border:1px solid var(--line-2);border-radius:13px;padding:15px 16px;
+    box-shadow:0 1px 2px rgba(24,24,27,.03);display:flex;flex-direction:column;gap:10px;min-height:124px}
+  .card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .card-q{font-size:12.5px;color:var(--muted);line-height:1.45;font-weight:500;text-wrap:pretty}
+  .pin-x{border:none;background:transparent;color:var(--faint);cursor:pointer;font-size:13px;
+    padding:0 2px;line-height:1;flex:none}
+  .pin-x:hover{color:var(--danger)}
+  .card-ans{font-size:17px;font-weight:600;color:var(--ink);line-height:1.4;flex:1;text-wrap:pretty}
+  .card-ans .ph{font-size:13px;font-weight:400;color:var(--faint)}
+  .card-foot{display:flex;align-items:center;gap:8px;margin-top:auto}
+  .pin-role{font-size:11px;color:var(--accent-ink);background:var(--accent-weak);padding:2px 8px;border-radius:6px}
+  .pin-cached{font-size:11px;color:#5b54c9;font-weight:500;margin-left:5px}
+  .pin-refresh{border:1px solid var(--line-2);background:var(--surface);color:var(--muted);font-family:var(--sans);
+    font-size:12px;padding:4px 11px;border-radius:7px;cursor:pointer;margin-left:auto;transition:all .15s}
+  .pin-refresh:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .pin-refresh:disabled{opacity:.5;cursor:default}
+
+  .statline{display:flex;align-items:center;flex-wrap:wrap;gap:0 6px;font-size:13px;color:var(--muted);margin-bottom:16px}
+  .statline .dot{color:var(--line-2);margin:0 2px}
+  .statline b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;padding:3px 10px;border-radius:7px;margin-right:8px}
+  .badge.ok{color:var(--accent-ink);background:var(--accent-weak)}
+  .badge.bad{color:var(--danger);background:var(--danger-weak)}
+  .badge .led{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+  .answer-card{background:var(--surface);border:1px solid var(--line-2);border-radius:14px;padding:20px 22px;margin-bottom:20px;box-shadow:0 1px 2px rgba(24,24,27,.03)}
+  .answer-card .eyebrow{font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:.09em;font-weight:700;margin-bottom:9px}
+  .answer-text{font-size:19px;line-height:1.55;font-weight:500;color:var(--ink);text-wrap:pretty}
+  .insights{margin-top:15px;padding-top:14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+  .insight{display:flex;gap:10px;font-size:13.5px;color:var(--ink-2);text-wrap:pretty}
+  .insight .mk{color:var(--accent);font-weight:700;flex:none;line-height:1.5}
+
+  .sec{margin-bottom:18px}
+  .sec > .eyebrow{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;font-weight:600}
+  .reason{color:var(--ink-2);font-size:14px;text-wrap:pretty}
+  .sqlcard{background:#1b1b1f;border-radius:12px;overflow:hidden}
+  .sqlcard .bar{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.07)}
+  .sqlcard .bar .tag{font-family:var(--mono);font-size:11px;color:#8a8a93;letter-spacing:.12em}
+  .copy{background:rgba(255,255,255,.06);color:#c9c9d1;border:1px solid rgba(255,255,255,.1);border-radius:7px;font-size:11.5px;padding:4px 11px;cursor:pointer;transition:background .15s}
+  .copy:hover{background:rgba(255,255,255,.13)}
+  .sqlcard pre{margin:0;padding:15px 16px;overflow:auto}
+  .sqlcard code{font-family:var(--mono);font-size:13.5px;line-height:1.65;color:#e4e4e7;white-space:pre-wrap;word-break:break-word}
+  .s-kw{color:#7fd9b8;font-weight:600}.s-str{color:#e3b27f}
+
+  .toggle{display:inline-flex;background:#f1f1f3;border:1px solid var(--line-2);border-radius:9px;padding:3px;margin-bottom:12px}
+  .toggle button{border:none;background:transparent;color:var(--muted);font-family:var(--sans);font-size:13px;padding:5px 16px;border-radius:7px;cursor:pointer;transition:all .15s}
+  .toggle button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(24,24,27,.1)}
+  .tablewrap{border:1px solid var(--line-2);border-radius:12px;overflow:auto;max-height:440px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  thead th{position:sticky;top:0;background:#fafafa;color:var(--muted);text-align:left;font-weight:600;padding:11px 15px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+  tbody td{padding:10px 15px;border-bottom:1px solid var(--line);color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:#fbfbfc}
+  .rowsnote{font-size:12px;color:var(--faint);margin-top:9px}
+  .errbox{background:var(--danger-weak);border:1px solid #f0d4d1;color:var(--danger);border-radius:11px;padding:14px 16px;font-size:14px;font-family:var(--mono);text-wrap:pretty}
+  canvas{max-height:360px}
+
+  details.more{margin-top:8px;border:1px solid var(--line);border-radius:12px;background:#fcfcfd}
+  details.more summary{cursor:pointer;list-style:none;padding:12px 16px;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:9px;user-select:none}
+  details.more summary::-webkit-details-marker{display:none}
+  details.more summary::before{content:'›';font-size:17px;line-height:1;color:var(--faint);transition:transform .2s}
+  details.more[open] summary::before{transform:rotate(90deg)}
+  details.more .body{padding:2px 16px 18px}
+
+  .hide{display:none!important}
+  @media (max-width:560px){.metrics{display:none}.wrap{padding:28px 16px 100px}.bubble-user{max-width:88%}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="mark">T2</div>
+      <div>
+        <h1>Text2SQL 智能体</h1>
+        <div class="desc">问一句话,拿到答案、洞察与图表 —— 不用写 SQL</div>
+      </div>
+    </div>
+    <div class="metrics" id="metrics"></div>
+  </header>
+
+  <div class="panel">
+    <div class="dbrow">
+      <span class="eyebrow">数据库</span>
+      <select id="db"></select>
+    </div>
+    <textarea id="q" rows="2" placeholder="用一句话提问,例如:每个城市有多少客户?"></textarea>
+    <div class="toolbar">
+      <span class="opt hide" id="roleOpt">身份 <select id="role"></select></span>
+      <span class="opt">表检索
+        <select id="schema"><option value="lexical">智能检索</option><option value="full">全量</option></select>
+      </span>
+      <span class="opt">示例数 <input id="fewshot" type="number" min="0" max="10" value="5" /></span>
+      <span class="opt">自纠错 <input id="correct" type="number" min="0" max="3" value="0" /></span>
+      <label class="opt" title="重复提问直接复用上次结果(0 成本、秒回)"><input type="checkbox" id="usecache" checked /> 缓存</label>
+      <span class="grow"></span>
+      <button class="btn" id="ask"><span class="spin" id="spin"></span><span id="askLabel">提问</span></button>
+    </div>
+  </div>
+
+  <div id="empty">
+    <div id="dashboard" class="hide"></div>
+    <div class="ex-hint">试试这些问题(可连续追问,例如先问总量再说"只看北京")</div>
+    <div class="examples" id="examples"></div>
+  </div>
+
+  <div id="threadbar" class="threadbar hide"><span class="t">对话</span><button class="ghost" id="newchat">＋ 新对话</button></div>
+  <div id="thread"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const charts = {};
+let conversation = [];   // [{question, sql} | {question, clarification}]
+let turnSeq = 0;
+
+const EXAMPLES = {
+  sample: ["每个城市有多少客户", "价格最高的三个产品", "一共有多少订单", "已完成订单的总金额"],
+  _default: ["有多少条记录?", "按数量从多到少排序", "数量最多的是哪一个?"]
+};
+
+function esc(v){ return v===null||v===undefined ? '' : String(v).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function cell(v){ return v===null||v===undefined ? '<span style="color:#c4c4c9">∅</span>' : esc(v); }
+function highlightSQL(sql){
+  let s = esc(sql);
+  s = s.replace(/('[^']*')/g, '<span class="s-str">$1</span>');
+  const kw = /\b(SELECT|FROM|WHERE|GROUP BY|ORDER BY|LIMIT|OFFSET|JOIN|LEFT|RIGHT|INNER|OUTER|FULL|CROSS|ON|AS|AND|OR|NOT|IN|IS|NULL|EXISTS|COUNT|SUM|AVG|MIN|MAX|ROUND|DISTINCT|HAVING|UNION|ALL|DESC|ASC|BETWEEN|LIKE|CASE|WHEN|THEN|ELSE|END|WITH)\b/gi;
+  return s.replace(kw, m => `<span class="s-kw">${m.toUpperCase()}</span>`);
+}
+
+async function loadDatabases(){
+  try{
+    const dbs = await (await fetch('/api/databases')).json();
+    $('#db').innerHTML = dbs.map(d=>`<option value="${d.id}">${esc(d.label)}</option>`).join('') || '<option>未找到数据库</option>';
+  }catch(e){ $('#db').innerHTML = '<option>加载失败</option>'; }
+  renderExamples();
+}
+function renderExamples(){
+  const list = EXAMPLES[$('#db').value] || EXAMPLES._default;
+  $('#examples').innerHTML = list.map(q=>`<span class="ex">${esc(q)}</span>`).join('');
+  document.querySelectorAll('.ex').forEach(el=>el.onclick=()=>{ $('#q').value=el.textContent; ask(); });
+}
+async function loadRoles(){
+  try{
+    const roles = await (await fetch('/api/roles')).json();
+    if(!roles || !roles.length){ $('#roleOpt').classList.add('hide'); return; }
+    $('#role').innerHTML = roles.map(r=>`<option value="${esc(r.role)}">${esc(r.label)}</option>`).join('');
+    $('#roleOpt').classList.remove('hide');
+  }catch(e){ $('#roleOpt').classList.add('hide'); }
+}
+async function loadMetrics(){
+  try{
+    const s = await (await fetch('/api/traces/summary')).json();
+    if(!s.calls){ $('#metrics').innerHTML=''; return; }
+    const m=[[s.calls,'累计调用'],[(s.ok_rate*100).toFixed(0)+'%','成功率'],
+      [s.total_tokens>=1000?(s.total_tokens/1000).toFixed(1)+'k':s.total_tokens,'令牌'],['$'+s.total_cost_usd.toFixed(4),'花费']];
+    $('#metrics').innerHTML = m.map(([v,k])=>`<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`).join('');
+  }catch(e){}
+}
+
+function renderTable(cols, rows){
+  const head='<thead><tr>'+cols.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead>';
+  const body='<tbody>'+rows.map(r=>'<tr>'+r.map(v=>`<td>${cell(v)}</td>`).join('')+'</tr>').join('')+'</tbody>';
+  return `<div class="tablewrap"><table>${head}${body}</table></div>`;
+}
+function drawChartOn(id, c){
+  if(charts[id]) charts[id].destroy();
+  charts[id]=new Chart($('#cv-'+id),{type:'bar',
+    data:{labels:c.x,datasets:[{label:c.y_label,data:c.y,backgroundColor:'#15795f',hoverBackgroundColor:'#0f5a47',borderRadius:5,maxBarThickness:44}]},
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{backgroundColor:'#18181b',padding:10,cornerRadius:8}},
+      scales:{x:{grid:{display:false},border:{display:false},ticks:{color:'#71717a',font:{size:11}}},
+              y:{grid:{color:'#f0f0f2'},border:{display:false},ticks:{color:'#a1a1aa',font:{size:11}}}}}});
+}
+
+function answerHTML(res, id){
+  const t=res.tokens||{};
+  const bits = res.ok?`<span class="badge ok"><span class="led"></span>执行成功</span>`:`<span class="badge bad"><span class="led"></span>执行失败</span>`;
+  const parts=[`共 <b>${res.row_count}</b> 行`,`用时 <b>${res.latency_s}</b> 秒`,`<b>${t.total||0}</b> 令牌`,`<b>$${(res.cost_usd||0).toFixed(5)}</b>`];
+  if(res.attempts>1) parts.push(`自纠错 <b>${res.attempts}</b> 次`);
+  if(res.tables_used&&res.tables_used.length) parts.push(`用到表 <b>${esc(res.tables_used.join('、'))}</b>`);
+  if(res.semantics_used) parts.push(`<b>已应用业务语义</b>`);
+  if(res.num_learned) parts.push(`参考 <b>${res.num_learned}</b> 条历史好评`);
+  const g=res.governance||{};
+  let govBadges='';
+  if(res.cached) govBadges+=`<span class="badge cache"><span class="led"></span>命中缓存 · 0 成本</span>`;
+  if(res.role_label) govBadges+=`<span class="badge gov"><span class="led"></span>身份 ${esc(res.role_label)}</span>`;
+  if(g.row_security&&g.row_security.length) parts.push(`<b>已应用行级权限</b>`);
+  if(g.masked_columns&&g.masked_columns.length) parts.push(`已脱敏 <b>${esc(g.masked_columns.join('、'))}</b>`);
+  let h=`<div class="statline">${govBadges}${bits}${parts.join('<span class="dot">·</span>')}</div>`;
+  if(res.answer){
+    h+=`<div class="answer-card"><div class="eyebrow">答案</div><div class="answer-text">${esc(res.answer)}</div>`;
+    if(res.insights&&res.insights.length) h+=`<div class="insights">`+res.insights.map(i=>`<div class="insight"><span class="mk">—</span><span>${esc(i)}</span></div>`).join('')+`</div>`;
+    h+=`</div>`;
+  }
+  const hasChart=!!res.chart;
+  if(res.error){
+    h+=`<div class="sec"><div class="eyebrow">执行报错</div><div class="errbox">${esc(res.error)}</div></div>`;
+  }else{
+    h+=`<div class="sec"><div class="eyebrow">查询结果</div>`;
+    if(hasChart) h+=`<div class="toggle"><button class="on" id="cb-${id}">图表</button><button id="tb-${id}">表格</button></div>`;
+    if(hasChart) h+=`<div id="chartView-${id}"><canvas id="cv-${id}"></canvas></div>`;
+    h+=`<div id="tableView-${id}" class="${hasChart?'hide':''}">${renderTable(res.columns,res.rows)}`;
+    if(res.row_count>res.rows.length) h+=`<div class="rowsnote">仅显示前 ${res.rows.length} 行,共 ${res.row_count} 行</div>`;
+    h+=`</div></div>`;
+  }
+  if(res.sql){
+    h+=`<details class="more"><summary>查看 SQL 与推理过程</summary><div class="body">`;
+    if(res.reasoning) h+=`<div class="sec" style="margin-top:14px"><div class="eyebrow">推理</div><div class="reason">${esc(res.reasoning)}</div></div>`;
+    h+=`<div class="sec" style="margin-bottom:6px"><div class="eyebrow">${res.executed_sql?'模型生成 SQL':'SQL'}</div><div class="sqlcard"><div class="bar"><span class="tag">SQL</span><button class="copy" id="cp-${id}">复制</button></div><pre><code>${highlightSQL(res.sql)}</code></pre></div></div>`;
+    if(res.executed_sql) h+=`<div class="sec" style="margin-bottom:6px"><div class="eyebrow">实际执行(已注入行级权限)</div><div class="sqlcard"><pre><code>${highlightSQL(res.executed_sql)}</code></pre></div></div>`;
+    h+=`</div></details>`;
+  }
+  if(res.ok && res.action==='sql' && res.sql){
+    h+=`<div class="feedback" id="fb-${id}"><span class="q">这个回答准确吗?</span>`
+      +`<button class="fb-btn up" data-r="up">👍 准确</button>`
+      +`<button class="fb-btn down" data-r="down">👎 不准确</button>`
+      +`<span class="grow"></span>`
+      +`<button class="fb-btn pin" id="pin-${id}">☆ 收藏到仪表盘</button></div>`;
+  }
+  return h;
+}
+function wireAnswer(res, id){
+  $('#cp-'+id)?.addEventListener('click',()=>{navigator.clipboard.writeText(res.sql);const b=$('#cp-'+id);b.textContent='已复制';setTimeout(()=>b.textContent='复制',1200);});
+  if(res.chart && !res.error){
+    const tv=$('#tableView-'+id),cvv=$('#chartView-'+id),cb=$('#cb-'+id),tb=$('#tb-'+id);
+    cb.onclick=()=>{cb.classList.add('on');tb.classList.remove('on');cvv.classList.remove('hide');tv.classList.add('hide');drawChartOn(id,res.chart);};
+    tb.onclick=()=>{tb.classList.add('on');cb.classList.remove('on');tv.classList.remove('hide');cvv.classList.add('hide');};
+    drawChartOn(id,res.chart);
+  }
+  const fb=$('#fb-'+id);
+  if(fb){
+    fb.querySelectorAll('.fb-btn').forEach(b=>b.onclick=async()=>{
+      const rating=b.dataset.r;
+      fb.querySelectorAll('.fb-btn').forEach(x=>x.disabled=true);
+      try{
+        const r=await (await fetch('/api/feedback',{method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({question:res.question, db:res.db_id, sql:res.sql,
+            rating, role:res.role||''})})).json();
+        const msg = rating==='up'
+          ? '已采纳为示例 · 以后类似问题会更准'
+          : (r.cache_invalidated ? '已记录 · 已清除该问题缓存,下次会重新生成' : '已记录,我们会改进');
+        fb.innerHTML=`<span class="fb-done">✓ 感谢反馈 · ${msg}</span>`;
+      }catch(e){
+        fb.innerHTML=`<span class="fb-done" style="color:var(--danger)">反馈提交失败</span>`;
+      }
+    });
+  }
+  $('#pin-'+id)?.addEventListener('click', ()=>pinCurrent(res, $('#pin-'+id)));
+}
+
+// --- dashboard / pinned questions (P11c) ----------------------------------
+let pinMap = {};
+async function loadPins(){
+  try{
+    const list = await (await fetch('/api/pins')).json();
+    pinMap = {}; (list||[]).forEach(p=>pinMap[p.id]=p);
+    const box=$('#dashboard');
+    if(!list || !list.length){ box.classList.add('hide'); box.innerHTML=''; return; }
+    box.classList.remove('hide');
+    box.innerHTML =
+      `<div class="dashhead"><span class="t">我的仪表盘 · ${list.length}</span>`
+      +`<button class="ghost" id="refreshAll">↻ 刷新全部</button></div>`
+      +`<div class="cards">`+list.map(pinCardHTML).join('')+`</div>`;
+    $('#refreshAll').onclick=()=>list.forEach(p=>refreshPin(p.id));
+    list.forEach(p=>{
+      $('#pin-del-'+p.id).onclick=()=>removePin(p.id);
+      $('#pin-ref-'+p.id).onclick=()=>refreshPin(p.id);
+    });
+  }catch(e){ /* dashboard is best-effort */ }
+}
+function pinCardHTML(p){
+  const ans = p.answer ? esc(p.answer) : '<span class="ph">点击刷新获取最新数据</span>';
+  const role = p.role ? `<span class="pin-role">${esc(p.role)}</span>` : '';
+  return `<div class="card" id="card-${p.id}">
+    <div class="card-top"><span class="card-q">${esc(p.label||p.question)}</span>
+      <button class="pin-x" id="pin-del-${p.id}" title="移除">✕</button></div>
+    <div class="card-ans" id="pin-ans-${p.id}">${ans}</div>
+    <div class="card-foot">${role}<button class="pin-refresh" id="pin-ref-${p.id}">↻ 刷新</button></div>
+  </div>`;
+}
+async function refreshPin(id){
+  const p=pinMap[id]; if(!p) return;
+  const ansEl=$('#pin-ans-'+id), btn=$('#pin-ref-'+id);
+  ansEl.innerHTML='<span class="ph">刷新中…</span>'; if(btn) btn.disabled=true;
+  try{
+    const res=await (await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({question:p.question, db:p.db_id, schema:'lexical',
+        fewshot:5, correct:0, role:p.role||'', use_cache:true, history:[]})})).json();
+    const ans = res.answer || (res.error ? ('错误:'+res.error) : '(无结果)');
+    ansEl.innerHTML = esc(ans) + (res.cached ? '<span class="pin-cached">⚡缓存</span>' : '');
+    p.answer = res.answer || p.answer;
+    // persist the fresh snapshot so a page reload shows the latest value
+    if(res.answer) fetch('/api/pins',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({question:p.question, db:p.db_id, role:p.role||'',
+        label:p.label, answer:res.answer})});
+    loadMetrics();
+  }catch(e){ ansEl.innerHTML='<span class="ph">刷新失败</span>'; }
+  finally{ if(btn) btn.disabled=false; }
+}
+async function removePin(id){
+  try{ await fetch('/api/pins/'+id,{method:'DELETE'}); }catch(e){}
+  loadPins();
+}
+async function pinCurrent(res, btn){
+  if(!btn) return;
+  btn.disabled=true;
+  try{
+    await fetch('/api/pins',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({question:res.question, db:res.db_id, role:res.role||'',
+        label:res.question, answer:res.answer||''})});
+    btn.textContent='★ 已收藏';
+    loadPins();
+  }catch(e){ btn.disabled=false; }
+}
+
+function appendUser(q){
+  $('#thread').insertAdjacentHTML('beforeend',`<div class="turn user"><div class="bubble-user">${esc(q)}</div></div>`);
+}
+function appendPending(id){
+  $('#thread').insertAdjacentHTML('beforeend',`<div class="turn" id="turn-${id}"><div class="pending"><span class="dots"><i></i><i></i><i></i></span>正在分析…</div></div>`);
+  scrollDown();
+}
+function scrollDown(){ window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'}); }
+
+function resetChat(){
+  conversation=[]; $('#thread').innerHTML=''; $('#threadbar').classList.add('hide');
+  $('#empty').classList.remove('hide'); renderExamples(); loadPins();
+}
+
+async function ask(){
+  const question=$('#q').value.trim();
+  if(!question) return;
+  $('#empty').classList.add('hide'); $('#threadbar').classList.remove('hide');
+  appendUser(question);
+  $('#q').value='';
+  const id=++turnSeq; appendPending(id);
+  const btn=$('#ask'),spin=$('#spin'),label=$('#askLabel');
+  btn.disabled=true; spin.style.display='inline-block'; label.textContent='思考中…';
+  try{
+    const res=await (await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({question, db:$('#db').value, schema:$('#schema').value,
+        fewshot:parseInt($('#fewshot').value||'0'), correct:parseInt($('#correct').value||'0'),
+        role:($('#role')&&$('#role').value)||'', use_cache:$('#usecache')?$('#usecache').checked:true,
+        history:conversation})})).json();
+    const slot=$('#turn-'+id);
+    if(res.governance_blocked){
+      slot.innerHTML=`<div class="denied-card"><div class="eyebrow"><span class="led"></span>访问被拒绝 · 数据治理</div><div class="q">${esc(res.error)}</div><div class="hint">当前身份「${esc(res.role_label||'')}」对该数据无访问权限。可在上方切换身份,或换个问法。</div></div>`;
+      conversation.push({question, sql:res.sql});
+    }else if(res.action==='clarify' || (res.clarification && !res.sql)){
+      slot.innerHTML=`<div class="clarify-card"><div class="eyebrow">需要澄清</div><div class="q">${esc(res.clarification)}</div><div class="hint">在下方输入框回答即可,我会接着帮你查。</div></div>`;
+      conversation.push({question, clarification:res.clarification});
+    }else if(res.error && !res.sql){
+      slot.innerHTML=`<div class="errbox">${esc(res.error)}</div>`;
+    }else{
+      slot.innerHTML=answerHTML(res,id); wireAnswer(res,id);
+      conversation.push({question, sql:res.sql});
+    }
+    loadMetrics();
+  }catch(e){
+    $('#turn-'+id).innerHTML=`<div class="errbox">请求失败:${esc(e.message)}</div>`;
+  }finally{
+    btn.disabled=false; spin.style.display='none'; label.textContent='提问'; scrollDown();
+  }
+}
+
+$('#ask').addEventListener('click', ask);
+$('#newchat').addEventListener('click', resetChat);
+$('#db').addEventListener('change', ()=>{ renderExamples(); });
+$('#q').addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter') ask(); });
+loadDatabases(); loadMetrics(); loadRoles(); loadPins();
+</script>
+</body>
+</html>

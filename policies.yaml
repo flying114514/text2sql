@@ -1,0 +1,42 @@
+# 数据治理策略(Phase 10)——「谁能看什么」。
+#
+# 与 semantics/<id>.yaml 分工明确:
+#   * semantics 的 pii: 段  = 数据分级,声明【什么是敏感字段】
+#   * 这里               = 访问决策,决定【哪个角色能看明文 / 看哪些行 / 不能碰哪些列】
+#
+# 强制点在【执行边界的代码里】(governance.py),绝不依赖提示词——
+# LLM 能被绕过,鉴权必须是模型无法影响的确定性逻辑。
+#
+# 它是「访问策略」而非密钥,所以提交进 git(对照:connections.yaml 含密码,被 gitignore)。
+# identities 里的 key 是演示占位;真实环境从 SSO/JWT 推导身份,密钥进密钥库。
+
+default_role: viewer          # 认不出身份时,落到权限最小的角色(默认拒绝)
+
+# 身份(API Key)→ 角色。演示用;请求头 X-API-Key 命中即生效。
+identities:
+  key-analyst: analyst
+  key-ops-bj: ops_bj
+  key-viewer: viewer
+
+roles:
+  analyst:
+    label: 数据分析师(全量)
+    can_see_pii: true          # 看 PII 明文;无行/列限制 = 全量访问
+
+  ops_bj:
+    label: 北京区运营(仅本区·脱敏)
+    can_see_pii: false         # 姓名等 PII 脱敏
+    row_filters:               # 行级权限:只能看到北京的客户(及其关联数据)
+      sample:
+        customers: "city = 'Beijing'"
+      shop_pg:
+        customers: "city = 'Beijing'"
+
+  viewer:
+    label: 访客(只读·脱敏·受限)
+    can_see_pii: false
+    deny_columns:              # 列级权限:引用这些字段直接拒绝执行
+      sample:
+        - customers.signup_date
+      shop_pg:
+        - customers.signup_date
