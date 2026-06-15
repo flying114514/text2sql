@@ -233,12 +233,16 @@ def converse(
     semantics: str | None = None,
     history: list[dict] | None = None,
     repair: tuple[str, str] | None = None,
+    principal=None,
 ) -> ConverseResult:
     """Conversational generation (P8): resolves follow-ups using `history`, and
     may return a clarifying question instead of SQL when the request is ambiguous.
 
     P9b: an optional `semantics` block (the business semantic layer) is injected
     so the model uses the right 口径/JOIN/术语 for this database.
+
+    P13: `principal` is forwarded to the LLM gateway for per-role rate limiting
+    (ignored when no gateway.yaml is configured).
     """
     schema = format_schema_for_prompt(db_path, tables=tables)
     messages = build_chat_messages(
@@ -249,7 +253,10 @@ def converse(
         semantics=semantics,
         repair=repair,
     )
-    resp = complete(messages, json_mode=True)
+    # principal is forwarded only when set, so callers/tests that mock `complete`
+    # with the pre-P13 signature (no principal kwarg) keep working unchanged.
+    extra = {"principal": principal} if principal is not None else {}
+    resp = complete(messages, json_mode=True, **extra)
     data = _loads_json(resp.content)
 
     if str(data.get("action", "sql")).lower() == "clarify":

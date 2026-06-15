@@ -1,0 +1,48 @@
+# LLM 网关配置 (Phase 13).
+#
+# 复制本文件为 `gateway.yaml`(已 gitignore)即可启用进程内大模型网关。
+# 不创建 gateway.yaml 时网关自动关闭，系统回到 .env 的单 provider「主+兜底」行为，
+# 完全向后兼容。
+#
+# secrets 不要写在这里：用 ${VAR} 引用 .env 里的变量(与 connections.yaml 同语义)。
+
+defaults:
+  strategy: priority          # priority | weighted | round_robin | cost | latency
+  timeout: 60                 # 单次请求超时(秒)
+  max_retries: 2              # SDK 层对单个 provider 的网络重试次数
+
+# 注册多个 provider。统一走 OpenAI 兼容协议，因此 DeepSeek / 通义 / 智谱 / OpenAI
+# 只是 base_url + model + key 的不同。priority 越小越优先;weight 用于 weighted /
+# round_robin 分流;price_* 为该模型的单价(USD/百万 token)，缺省则回落全局 PRICE_*。
+providers:
+  - id: deepseek
+    base_url: https://api.deepseek.com
+    api_key: ${LLM_API_KEY}
+    model: deepseek-chat
+    priority: 10
+    weight: 3
+    price_in_per_m: 0.27
+    price_out_per_m: 1.10
+
+  # 取消注释并在 .env 设置 QWEN_API_KEY 即可加入第二个 provider 做故障转移/负载均衡。
+  # - id: qwen
+  #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  #   api_key: ${QWEN_API_KEY}
+  #   model: qwen-plus
+  #   priority: 20
+  #   weight: 1
+  #   price_in_per_m: 0.40
+  #   price_out_per_m: 1.20
+
+# 按角色限流/配额。角色名复用 governance(policies.yaml)的 role。
+# 'default' 是未列出角色的兜底;qps/tokens_per_min 省略或填 0 表示该项不限。
+limits:
+  default:
+    qps: 5
+    tokens_per_min: 100000
+  analyst:
+    qps: 10
+    tokens_per_min: 300000
+  admin:
+    qps: 50
+    tokens_per_min: 2000000

@@ -10,6 +10,8 @@ venv/
 *.local
 # External DB connections (may contain credentials) — keep the template only
 connections.yaml
+# LLM gateway config (may reference secrets) — keep the template only
+gateway.yaml
 
 # Data (large datasets / generated dbs) — keep the folder, ignore contents
 /data/*

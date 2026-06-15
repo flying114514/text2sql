@@ -52,14 +52,17 @@
   → ② Schema 检索(RAG)            [P3]   ── 只挑相关表,压缩提示词
   → ③ 语义层注入(术语/指标/JOIN)  [P9b]  ── 业务口径
   → ④ 反馈飞轮 + few-shot 示例      [P11b/P4B] ── 已验证示例优先
-  → ⑤ LLM 生成 SQL(结构化输出)
+  → ⑤ LLM 生成 SQL(结构化输出)  ── 经 LLM 网关 [P13]:多 provider 路由 + 熔断降级 + 按角色限流
   → ⑥ 校验(sqlglot)+ RLS 重写 + 只读执行(超时看门狗)
   → ⑦ 自纠错循环(报错则改写重试)  [P4]
   → ⑧ 输出列脱敏 → 分析师把结果讲成人话 + 选图   [P7]
-       (每步都落 trace:token / 延迟 / 成本)        [P5]
+       (每步都落 trace:provider / token / 延迟 / 成本)   [P5/P13]
 
 语义缓存 [P11a]:重复首轮问题在 ① 之前直接秒回(key 含角色,防越权)
 收藏仪表盘 [P11c]:把常用问题钉成卡片,一键刷新拿最新数
+LLM 网关 [P13]:统一收口所有模型调用 —— 可插拔路由(优先级/加权/轮询/成本/延迟)、
+              三态熔断器做多 provider 故障转移、按角色令牌桶限流 + token 配额、按模型成本核算。
+              不配 gateway.yaml 时自动退化为单 provider「主+兜底」,完全向后兼容。
 ```
 
 ---
@@ -90,7 +93,7 @@ uv run python scripts/make_sample_db.py
 uv run python scripts/smoke_db.py     # 数据库流水线(不需要 LLM)
 uv run python scripts/smoke_llm.py    # LLM 连通性(需要 .env)
 
-# 5. 单元测试(113 个)
+# 5. 单元测试(146 个)
 uv run pytest
 
 # 6. 起 Web 端(演示主入口)
@@ -197,7 +200,9 @@ src/text2sql/
   engine.py        SQLAlchemy 跨方言:内省 + 只读执行 + 类型规整
   db.py / schema.py / schema_index.py   按数据源分派(SQLite 老路径零改动)
   retriever.py / embeddings.py / examples.py   schema 检索(词法/嵌入)+ few-shot
-  llm.py           provider 无关的 LLM 客户端 + 主备降级 + tracing
+  llm.py           provider 无关的 LLM 客户端 + 主备降级 + tracing(配 gateway 时委托网关)
+  gateway/         LLM 网关 [P13]:providers(注册表)/ router(路由策略)/ breaker(熔断)/
+                   limiter(限流配额)/ gateway(编排门面)
   agent.py         generate(严格版)+ converse(多轮对话版)
   analyst.py       把查询结果讲成人话(禁编造)+ 选图
   guard.py         sqlglot 危险 SQL 拦截
@@ -214,7 +219,7 @@ eval/              评测 harness(指标 / 数据集 / run_eval)
 scripts/           样例库 / 冒烟 / Spider 准备 / 起服务 / PG 灌数 / 审计报表
 semantics/<id>.yaml  业务语义层(=数据分级,提交进 git)
 policies.yaml        治理策略(=访问决策,提交进 git)
-tests/             113 个单元测试
+tests/             146 个单元测试
 data/              数据库 & 数据集(gitignore)
 ```
 
@@ -229,6 +234,12 @@ data/              数据库 & 数据集(gitignore)
 - **👍 和 👎 不对称**:👍 把(问题→SQL)沉淀为正样本;👎 只说"错了"不给正解 → 永不入正样本,
   只做排查 + 作废该问题缓存。
 - **仪表盘收藏的是"问题"不是"答案"**:全是过期数字的看板比没有更糟,卡片随时重跑取最新值。
+- **网关熔断时把故障节点"沉底"而非删除**:全部 provider 都熔断时仍有最后兜底可试,
+  比"无候选可用直接报错"更可用;熔断只改变**顺序**,不改变**可达性**。
+- **限流复用治理身份(Principal)而非另造账户**:`principal.role` 直接当限流 key,
+  配额和行列权限共用同一套身份语义 —— 一处定义角色,鉴权 + 限流都生效。
+- **网关零配置退化**:不放 `gateway.yaml` 就完全是原来的单 provider 行为。
+  新增能力不强加成本,既有部署与全部测试零改动 —— 演进而非重写。
 
 > 完整的阶段记录、踩坑与面试问答见 [`项目设计书.md`](项目设计书.md);一页速览见
 > [`进度快照.md`](进度快照.md)。

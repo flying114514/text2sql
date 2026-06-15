@@ -17,7 +17,7 @@ import threading
 from datetime import UTC, datetime
 
 from .config import DATA_DIR
-from .pricing import estimate_cost
+from .pricing import estimate_cost_for
 
 TRACES_DIR = DATA_DIR / "traces"
 _lock = threading.Lock()
@@ -32,17 +32,31 @@ def record_llm_call(
     latency_s: float,
     ok: bool = True,
     error: str | None = None,
+    provider: str | None = None,
+    price_in: float | None = None,
+    price_out: float | None = None,
 ) -> dict:
-    """Record one LLM call to the local trace log (+ Langfuse if configured)."""
+    """Record one LLM call to the local trace log (+ Langfuse if configured).
+
+    `provider` (gateway-only) labels which registered provider served the call,
+    so reports can group by provider as well as by model. `price_in/out` let the
+    gateway cost a call at the model's own rate; omitted → global PRICE_IN/OUT.
+    """
     event = {
         "ts": datetime.now(UTC).isoformat(),
         "kind": kind,
+        "provider": provider,
         "model": model,
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": prompt_tokens + completion_tokens,
         "latency_s": round(latency_s, 4),
-        "cost_usd": round(estimate_cost(prompt_tokens, completion_tokens), 6),
+        "cost_usd": round(
+            estimate_cost_for(
+                prompt_tokens, completion_tokens, price_in=price_in, price_out=price_out
+            ),
+            6,
+        ),
         "ok": ok,
         "error": error,
     }

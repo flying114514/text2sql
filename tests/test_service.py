@@ -70,7 +70,7 @@ def test_chart_respects_explicit_order_by():
 def _client(monkeypatch):
     make_sample_db.build()  # ensure data/sample.sqlite exists
 
-    def fake_generate(messages, *, temperature=None, json_mode=False):
+    def fake_generate(messages, *, temperature=None, json_mode=False, **kwargs):
         sql = "SELECT city, COUNT(*) AS n FROM customers GROUP BY city"
         return LLMResponse(
             content=json.dumps({"action": "sql", "reasoning": "group by city", "sql": sql}),
@@ -79,7 +79,7 @@ def _client(monkeypatch):
             model="mock",
         )
 
-    def fake_analyst(messages, *, temperature=None, json_mode=False):
+    def fake_analyst(messages, *, temperature=None, json_mode=False, **kwargs):
         return LLMResponse(
             content=json.dumps(
                 {"answer": "客户主要分布在几个城市。", "insights": ["最多的城市占比最高"]}
@@ -134,7 +134,7 @@ def test_api_ask_returns_clarification(monkeypatch):
     """P8: an ambiguous question yields a clarify turn, not SQL/execution."""
     make_sample_db.build()
 
-    def fake_clarify(messages, *, temperature=None, json_mode=False):
+    def fake_clarify(messages, *, temperature=None, json_mode=False, **kwargs):
         return LLMResponse(
             content=json.dumps({"action": "clarify", "clarification": "你指的是哪一年的数据?"}),
             prompt_tokens=50,

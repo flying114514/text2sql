@@ -98,6 +98,15 @@ class Settings(BaseSettings):
         """True if Langfuse cloud credentials are configured."""
         return bool(self.langfuse_public_key and self.langfuse_secret_key)
 
+    def gateway_ready(self) -> bool:
+        """True if a gateway.yaml exists (the LLM gateway is configured).
+
+        Lives here so callers depend on settings, not on the gateway package —
+        but the authoritative check (does it actually have providers?) is
+        gateway.providers.gateway_enabled().
+        """
+        return (ROOT_DIR / "gateway.yaml").exists()
+
     def assert_ready(self) -> None:
         """Fail fast with a friendly message if the API key is not set."""
         if not self.llm_api_key or self.llm_api_key.startswith("sk-xxxx"):

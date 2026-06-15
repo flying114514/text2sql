@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Text2SQL 智能体</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="/chart.umd.min.js"></script>
 <style>
   :root{
     --bg:#f6f6f7; --surface:#ffffff; --ink:#18181b; --ink-2:#3f3f46;
@@ -180,6 +180,30 @@
   .hide{display:none!important}
   @media (max-width:560px){.metrics{display:none}.wrap{padding:28px 16px 100px}.bubble-user{max-width:88%}}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+  /* --- monitor (P13 gateway) ----------------------------------------------- */
+  .tabbar{display:inline-flex;background:#f1f1f3;border:1px solid var(--line-2);border-radius:9px;padding:3px}
+  .tabbar button{border:none;background:transparent;color:var(--muted);font-family:var(--sans);font-size:13px;padding:6px 18px;border-radius:7px;cursor:pointer;transition:all .15s;font-weight:500}
+  .tabbar button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(24,24,27,.1)}
+  .gw-state{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:7px}
+  .gw-state.closed{color:#15795f;background:#eef6f2}
+  .gw-state.half_open{color:#8a5a00;background:#fdf4e3}
+  .gw-state.open{color:#b4332a;background:#fbf0ef}
+  .gw-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-bottom:26px}
+  .gw-card{background:var(--surface);border:1px solid var(--line-2);border-radius:12px;padding:16px 18px}
+  .gw-card .head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .gw-card .title{font-size:14px;font-weight:600;color:var(--ink)}
+  .gw-card .props{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px}
+  .gw-card .props b{color:var(--ink-2)}
+  .gw-notice{padding:20px 24px;background:var(--accent-weak);border:1px solid #cfe7dd;border-radius:14px;font-size:15px;color:var(--accent-ink);font-weight:500;margin-bottom:22px}
+  .gw-notice b{font-weight:700}
+  .row-err{background:#fdf4f4}
+  .row-err td{color:var(--danger)!important}
+  #monitor-view h2{font-size:16px;font-weight:600;margin:28px 0 12px;color:var(--ink)}
+  #monitor-view .info{font-size:13px;color:var(--muted);margin-bottom:16px}
+  .refresh-bar{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .refresh-bar .opt label{cursor:pointer;font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:5px}
+
 </style>
 </head>
 <body>
@@ -192,9 +216,14 @@
         <div class="desc">问一句话,拿到答案、洞察与图表 —— 不用写 SQL</div>
       </div>
     </div>
+    <div class="tabbar" id="tabbar">
+      <button class="on" data-view="ask">问答</button>
+      <button data-view="monitor">监控</button>
+    </div>
     <div class="metrics" id="metrics"></div>
   </header>
 
+  <div id="ask-view">
   <div class="panel">
     <div class="dbrow">
       <span class="eyebrow">数据库</span>
@@ -222,6 +251,28 @@
 
   <div id="threadbar" class="threadbar hide"><span class="t">对话</span><button class="ghost" id="newchat">＋ 新对话</button></div>
   <div id="thread"></div>
+</div><!-- end #ask-view -->
+
+  <div id="monitor-view" class="hide">
+    <div id="gw-notice"></div>
+    <div class="gw-stats" id="gw-cards"></div>
+
+    <h2>按 Provider 统计</h2>
+    <div id="gw-by-provider"><div class="tablewrap"><table></table></div></div>
+
+    <h2>按模型统计</h2>
+    <div id="gw-by-model"><div class="tablewrap"><table></table></div></div>
+
+    <h2>调用趋势（小时）</h2>
+    <canvas id="gw-chart" style="max-height:300px;margin-bottom:20px"></canvas>
+
+    <h2>最近 <span id="gw-recent-count">0</span> 次调用明细</h2>
+    <div id="gw-recent"><div class="tablewrap"><table></table></div></div>
+    <div class="refresh-bar">
+      <button class="ghost" id="gw-refresh">↻ 刷新</button>
+      <span class="opt"><label><input type="checkbox" id="gw-auto" /> 每 10 秒自动刷新</label></span>
+    </div>
+  </div><!-- end #monitor-view -->
 </div>
 
 <script>
@@ -485,6 +536,125 @@ $('#newchat').addEventListener('click', resetChat);
 $('#db').addEventListener('change', ()=>{ renderExamples(); });
 $('#q').addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter') ask(); });
 loadDatabases(); loadMetrics(); loadRoles(); loadPins();
+
+// --- 视图切换 -----------------------------------------------------------
+function switchView(view){
+  document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.view===view));
+  $('#ask-view').classList.toggle('hide', view!=='ask');
+  $('#monitor-view').classList.toggle('hide', view!=='monitor');
+  if(view==='monitor'){ loadGateway(); startAutoRefresh(); }
+  else stopAutoRefresh();
+}
+document.querySelectorAll('#tabbar button').forEach(b=>{
+  b.addEventListener('click', ()=>{ switchView(b.dataset.view); });
+});
+
+// --- 网关监控数据加载 ----------------------------------------------------
+let gwAutoTimer=null;
+function startAutoRefresh(){
+  if($('#gw-auto')?.checked){ stopAutoRefresh(); gwAutoTimer=setInterval(loadGateway,10000); }
+}
+function stopAutoRefresh(){ if(gwAutoTimer){ clearInterval(gwAutoTimer); gwAutoTimer=null; } }
+$('#gw-auto')?.addEventListener('change', ()=>{ $('#gw-auto').checked ? startAutoRefresh() : stopAutoRefresh(); });
+$('#gw-refresh')?.addEventListener('click', loadGateway);
+
+async function loadGateway(){
+  let status={enabled:false,strategy:null,providers:[],limits:{}};
+  let metrics={by_provider:[],by_model:[],series:[],recent:[],total_calls:0};
+  try{ status = await(await fetch('/api/gateway/status')).json(); }catch(e){}
+  try{ metrics = await(await fetch('/api/gateway/metrics')).json(); }catch(e){}
+
+  // ① 网关状态提示
+  if(!status.enabled){
+    $('#gw-notice').innerHTML=`<div class="gw-notice">&#9888; 网关未启用 —— 放置 <code>gateway.yaml</code> 到项目根目录即可激活多 provider 路由/熔断/限流。
+      当前为单 provider 模式(从 .env 读取),以下仅展示 trace 统计数据。</div>`;
+    $('#gw-cards').innerHTML='';
+  }else{
+    $('#gw-notice').innerHTML='';
+    const stateMap={closed:'closed',half_open:'half_open',open:'open'};
+    const stateLabel={closed:'正常',half_open:'探测中',open:'熔断'};
+    let cards='';
+    (status.providers||[]).forEach(p=>{
+      const cls=stateMap[p.state]||'closed';
+      const lat=p.p50_latency_s!=null ? p.p50_latency_s.toFixed(2)+'s' : '暂无数据';
+      cards+=`<div class="gw-card">
+        <div class="head"><span class="title">${esc(p.id)} · ${esc(p.model)}</span>
+          <span class="gw-state ${cls}">${stateLabel[p.state]||p.state}</span></div>
+        <div class="props">P50 <b>${lat}</b> · 优先级 <b>${p.priority}</b> · 权重 <b>${p.weight}</b>
+          · \$<b>${(p.price_in_per_m||0)+(p.price_out_per_m||0)}</b>/M token</div>
+      </div>`;
+    });
+    // limits table
+    const lkeys=Object.keys(status.limits||{});
+    if(lkeys.length){
+      cards+=`<div class="gw-card"><div class="head"><span class="title">按角色限流</span></div>`
+        +`<div class="props">`+lkeys.map(r=>{
+          const l=status.limits[r];
+          return `${esc(r)}: QPS <b>${l.qps!=null?l.qps:'∞'}</b> · 配额 <b>${l.tokens_per_min!=null?l.tokens_per_min+'/min':'∞'}</b>`;
+        }).join('<br>')+`</div></div>`;
+    }
+    $('#gw-cards').innerHTML=cards;
+  }
+
+  // ② 按 provider / 按 model 统计表
+  function renderStatsTable(data){
+    if(!data||!data.length) return '<div class="tablewrap"><table><tbody><tr><td style="color:var(--faint)">暂无调用数据</td></tr></tbody></table></div>';
+    const h='<thead><tr><th>名称</th><th>调用</th><th>成功率</th><th>Token</th><th>成本</th><th>P50</th><th>P95</th></tr></thead>';
+    const b='<tbody>'+data.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.calls}</td><td>${(r.ok_rate*100).toFixed(0)}%</td><td>${r.tokens>=1000?(r.tokens/1000).toFixed(1)+'k':r.tokens}</td><td>$${r.cost_usd.toFixed(4)}</td><td>${r.p50_s.toFixed(2)}s</td><td>${r.p95_s.toFixed(2)}s</td></tr>`).join('')+'</tbody>';
+    return `<div class="tablewrap"><table>${h}${b}</table></div>`;
+  }
+  $('#gw-by-provider').innerHTML=renderStatsTable(metrics.by_provider);
+  $('#gw-by-model').innerHTML=renderStatsTable(metrics.by_model);
+
+  // ③ 时间趋势图
+  if(charts['gw-chart']) charts['gw-chart'].destroy();
+  let gwChart=null;
+  const series=metrics.series||[];
+  if(series.length && $('#gw-chart')){
+    // Only render if canvas is visible (in monitor view)
+    const ctx=$('#gw-chart').getContext('2d');
+    gwChart=new Chart(ctx,{
+      type:'line',
+      data:{
+        labels:series.map(s=>s.bucket),
+        datasets:[
+          {label:'调用数',data:series.map(s=>s.calls),borderColor:'#15795f',backgroundColor:'rgba(21,121,95,.08)',fill:true,yAxisID:'y',tension:.25,pointRadius:3},
+          {label:'成本 $',data:series.map(s=>s.cost_usd),borderColor:'#8a5a00',backgroundColor:'rgba(138,90,0,.05)',fill:true,yAxisID:'y1',tension:.25,pointRadius:3,borderDash:[4,3]}
+        ]
+      },
+      options:{
+        responsive:true,
+        plugins:{legend:{position:'bottom',labels:{font:{size:11},color:'#71717a',boxWidth:12,padding:20}}},
+        scales:{
+          x:{grid:{display:false},border:{display:false},ticks:{color:'#a1a1aa',font:{size:11}}},
+          y:{type:'linear',position:'left',grid:{color:'#f0f0f2'},border:{display:false},ticks:{color:'#a1a1aa',font:{size:11}},
+            title:{display:true,text:'调用数',color:'#71717a',font:{size:10}}},
+          y1:{type:'linear',position:'right',grid:{display:false},border:{display:false},ticks:{color:'#a1a1aa',font:{size:11}},
+            title:{display:true,text:'成本 (USD)',color:'#71717a',font:{size:10}}}
+        }
+      }
+    });
+    charts['gw-chart']=gwChart;
+  }
+
+  // ④ 最近调用明细
+  $('#gw-recent-count').textContent=Math.min((metrics.recent||[]).length,50);
+  const recent=metrics.recent||[];
+  if(!recent.length){
+    $('#gw-recent').innerHTML='<div class="tablewrap"><table><tbody><tr><td style="color:var(--faint)">暂无调用记录</td></tr></tbody></table></div>';
+  }else{
+    const now=new Date();
+    const h='<thead><tr><th>时间</th><th>Provider</th><th>模型</th><th>状态</th><th>Token</th><th>成本</th><th>延迟</th><th>错误</th></tr></thead>';
+    const b='<tbody>'+recent.map(r=>{
+      const ts=r.ts?r.ts.replace('T',' ').substring(0,19):'';
+      const okCls=r.ok?'':'row-err';
+      const okLabel=r.ok?'✓ 成功':'✗ 失败';
+      const err=r.error?esc((r.error||'').substring(0,80)):'';
+      return `<tr class="${okCls}"><td>${esc(ts)}</td><td>${esc(r.provider)}</td><td>${esc(r.model)}</td><td>${okLabel}</td><td>${r.total_tokens}</td><td>$${(r.cost_usd||0).toFixed(5)}</td><td>${(r.latency_s||0).toFixed(2)}s</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${err}</td></tr>`;
+    }).join('')+'</tbody>';
+    $('#gw-recent').innerHTML=`<div class="tablewrap"><table>${h}${b}</table></div>`;
+  }
+}
 </script>
 </body>
 </html>

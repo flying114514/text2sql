@@ -84,15 +84,49 @@ def complete(
     *,
     temperature: float | None = None,
     json_mode: bool = False,
+    principal=None,
 ) -> LLMResponse:
     """Send a chat completion: trace it, and fall back to a backup model on error.
 
-    Every attempt (success or failure) is recorded by the tracing layer, so token
-    usage, latency and cost are auditable. If the primary model raises after the
-    SDK's own retries, a configured fallback model is tried — this is the
-    reliability layer that keeps the agent serving when one provider has a wobble.
+    Routing has two layers:
+      * If a gateway.yaml is configured (multiple providers), delegate to the LLM
+        gateway — it does pluggable routing, per-provider circuit breaking and
+        per-role rate limiting, then comes back here via llm._call for the raw
+        request (so the mock point stays the same).
+      * Otherwise this keeps the original behaviour exactly: primary model + one
+        optional fallback, each attempt traced. Zero-config installs are
+        unaffected.
+
+    `principal` (governance identity) is only used by the gateway for per-role
+    rate limiting; it is ignored on the legacy path.
     """
-    temp = settings.llm_temperature if temperature is None else temperature
+    from .gateway.providers import gateway_enabled
+
+    if gateway_enabled():
+        from .gateway import gateway
+
+        return gateway.complete(
+            messages,
+            temperature=_resolve_temp(temperature),
+            json_mode=json_mode,
+            principal=principal,
+        ).response
+
+    return _legacy_complete(messages, temperature=temperature, json_mode=json_mode)
+
+
+def _resolve_temp(temperature: float | None) -> float:
+    return settings.llm_temperature if temperature is None else temperature
+
+
+def _legacy_complete(
+    messages: list[dict],
+    *,
+    temperature: float | None = None,
+    json_mode: bool = False,
+) -> LLMResponse:
+    """Original single-provider path: primary model + one optional fallback."""
+    temp = _resolve_temp(temperature)
 
     attempts: list[tuple[OpenAI, str]] = [(get_client(), settings.llm_model)]
     if settings.fallback_ready():
@@ -133,9 +167,12 @@ def chat(
     *,
     temperature: float | None = None,
     json_mode: bool = False,
+    principal=None,
 ) -> str:
     """Convenience wrapper returning just the text content."""
-    return complete(messages, temperature=temperature, json_mode=json_mode).content
+    return complete(
+        messages, temperature=temperature, json_mode=json_mode, principal=principal
+    ).content
 
 
 def ping() -> str:

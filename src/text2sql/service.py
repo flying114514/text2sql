@@ -284,6 +284,7 @@ def answer_query(
             examples=examples,
             semantics=semantics_block,
             history=history,
+            principal=principal,
         )
     except Exception as e:  # noqa: BLE001
         return {
@@ -350,6 +351,7 @@ def answer_query(
             semantics=semantics_block,
             history=history,
             repair=(sql, execu.error or ""),
+            principal=principal,
         )
         _acc(turn.response)
         if turn.kind != "sql" or not turn.sql:
