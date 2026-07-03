@@ -232,6 +232,9 @@
     <textarea id="q" rows="2" placeholder="用一句话提问,例如:每个城市有多少客户?"></textarea>
     <div class="toolbar">
       <span class="opt hide" id="roleOpt">身份 <select id="role"></select></span>
+      <span class="opt">模型
+        <select id="provider"></select>
+      </span>
       <span class="opt">表检索
         <select id="schema"><option value="lexical">智能检索</option><option value="full">全量</option></select>
       </span>
@@ -301,6 +304,17 @@ async function loadDatabases(){
     $('#db').innerHTML = dbs.map(d=>`<option value="${d.id}">${esc(d.label)}</option>`).join('') || '<option>未找到数据库</option>';
   }catch(e){ $('#db').innerHTML = '<option>加载失败</option>'; }
   renderExamples();
+}
+async function loadProviders(){
+  try{
+    const status = await (await fetch('/api/gateway/status')).json();
+    const providers = status.providers || [];
+    let html = '<option value="">自动选择</option>';
+    providers.forEach(p=>{
+      html += `<option value="${esc(p.id)}">${esc(p.id)} · ${esc(p.model)}</option>`;
+    });
+    $('#provider').innerHTML = html;
+  }catch(e){ $('#provider').innerHTML = '<option value="">自动选择</option>'; }
 }
 function renderExamples(){
   const list = EXAMPLES[$('#db').value] || EXAMPLES._default;
@@ -505,11 +519,12 @@ async function ask(){
   const btn=$('#ask'),spin=$('#spin'),label=$('#askLabel');
   btn.disabled=true; spin.style.display='inline-block'; label.textContent='思考中…';
   try{
+    const providerVal = ($('#provider')&&$('#provider').value)||'';
     const res=await (await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({question, db:$('#db').value, schema:$('#schema').value,
         fewshot:parseInt($('#fewshot').value||'0'), correct:parseInt($('#correct').value||'0'),
         role:($('#role')&&$('#role').value)||'', use_cache:$('#usecache')?$('#usecache').checked:true,
-        history:conversation})})).json();
+        history:conversation, provider_id:providerVal||null})})).json();
     const slot=$('#turn-'+id);
     if(res.governance_blocked){
       slot.innerHTML=`<div class="denied-card"><div class="eyebrow"><span class="led"></span>访问被拒绝 · 数据治理</div><div class="q">${esc(res.error)}</div><div class="hint">当前身份「${esc(res.role_label||'')}」对该数据无访问权限。可在上方切换身份,或换个问法。</div></div>`;
@@ -535,7 +550,7 @@ $('#ask').addEventListener('click', ask);
 $('#newchat').addEventListener('click', resetChat);
 $('#db').addEventListener('change', ()=>{ renderExamples(); });
 $('#q').addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey)&&e.key==='Enter') ask(); });
-loadDatabases(); loadMetrics(); loadRoles(); loadPins();
+loadDatabases(); loadProviders(); loadMetrics(); loadRoles(); loadPins();
 
 // --- 视图切换 -----------------------------------------------------------
 function switchView(view){

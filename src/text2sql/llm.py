@@ -13,8 +13,18 @@ from dataclasses import dataclass
 
 from openai import OpenAI
 
-from .config import settings
-from .tracing import record_llm_call
+from .config import DATA_DIR, settings
+from .tracing import langfuse_available, record_llm_call
+
+# Langfuse v4: @observe 自动创建 Trace→Span→Generation 层级
+try:
+    from langfuse import observe
+except ImportError:
+    def observe(*args, **kwargs):
+        """Langfuse 未安装时的 no-op 装饰器。"""
+        if args and callable(args[0]):
+            return args[0]
+        return lambda f: f
 
 
 @dataclass
@@ -62,21 +72,52 @@ def get_fallback_client() -> OpenAI:
     return _fallback_client
 
 
+def _dump_prompt(model: str, messages: list[dict]) -> None:
+    """将完整提示词写入磁盘，方便调试飞轮注入 + few-shot 效果。"""
+    import time as _time
+    from .config import DATA_DIR
+    debug_dir = DATA_DIR / "debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    ts = _time.strftime("%Y%m%d-%H%M%S")
+    fname = debug_dir / f"prompt-{ts}-{model.replace('/', '_')}.txt"
+    with open(fname, "w", encoding="utf-8") as f:
+        for i, m in enumerate(messages):
+            f.write(f"--- [{i}] {m['role']} ---\n")
+            f.write(m.get("content", "")[:3000])
+            f.write("\n\n")
+    # 只保留最近 20 个文件
+    files = sorted(debug_dir.glob("prompt-*.txt"), key=lambda p: p.stat().st_mtime)
+    for old in files[:-20]:
+        old.unlink(missing_ok=True)
+
+
+@observe(as_type="generation")
 def _call(
     client: OpenAI, model: str, messages: list[dict], temperature: float, json_mode: bool
 ) -> LLMResponse:
-    """One raw model call. Isolated so it's the single point to mock in tests."""
+    """One raw model call. @observe auto-reports each call as a Generation to Langfuse."""
+    _dump_prompt(model, messages)
     kwargs: dict = {"model": model, "messages": messages, "temperature": temperature}
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
     resp = client.chat.completions.create(**kwargs)
     usage = resp.usage
-    return LLMResponse(
+    result = LLMResponse(
         content=resp.choices[0].message.content or "",
         prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
         completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
         model=model,
     )
+    if langfuse_available():
+        try:
+            from langfuse import get_client
+            get_client().update_current_generation(
+                model=model,
+                usage={"input": result.prompt_tokens, "output": result.completion_tokens, "total": result.total_tokens},
+            )
+        except Exception:
+            pass
+    return result
 
 
 def complete(
@@ -85,6 +126,7 @@ def complete(
     temperature: float | None = None,
     json_mode: bool = False,
     principal=None,
+    provider_id=None,
 ) -> LLMResponse:
     """Send a chat completion: trace it, and fall back to a backup model on error.
 
@@ -99,6 +141,7 @@ def complete(
 
     `principal` (governance identity) is only used by the gateway for per-role
     rate limiting; it is ignored on the legacy path.
+    `provider_id` forces a specific gateway provider (used by the UI model switcher).
     """
     from .gateway.providers import gateway_enabled
 
@@ -110,6 +153,7 @@ def complete(
             temperature=_resolve_temp(temperature),
             json_mode=json_mode,
             principal=principal,
+            provider_id=provider_id,
         ).response
 
     return _legacy_complete(messages, temperature=temperature, json_mode=json_mode)

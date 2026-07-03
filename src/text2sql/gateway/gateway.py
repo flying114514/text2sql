@@ -55,8 +55,11 @@ def _get_router():
     return _router
 
 
-def complete(messages, *, temperature, json_mode, principal=None) -> GatewayResult:
-    """经网关发起一次补全。调用方应保证 load_providers() 非空(否则走退化路径)。"""
+def complete(messages, *, temperature, json_mode, principal=None, provider_id=None) -> GatewayResult:
+    """经网关发起一次补全。调用方应保证 load_providers() 非空(否则走退化路径)。
+
+    provider_id 不为空时只尝试该 provider（供前端模型切换按钮直接指定）。
+    """
     from .. import llm  # 延迟导入，打破 gateway ↔ llm 的导入环
 
     role = getattr(principal, "role", None)
@@ -65,6 +68,10 @@ def complete(messages, *, temperature, json_mode, principal=None) -> GatewayResu
         _limiter.check(role, est)  # 超限抛 RateLimitedError，不消耗任何 provider
 
     specs = list(load_providers())
+    if provider_id:
+        specs = [s for s in specs if s.id == provider_id]
+        if not specs:
+            raise RuntimeError(f"provider '{provider_id}' not found in gateway.yaml")
     order = _get_router().order(specs, _breakers)
 
     attempts: list[Attempt] = []

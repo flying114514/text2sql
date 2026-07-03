@@ -18,6 +18,14 @@ from .pricing import estimate_cost
 from .retriever import get_retriever
 from .sources import DataSource, get_source, list_sources
 
+try:
+    from langfuse import observe
+except ImportError:
+    def observe(*args, **kwargs):
+        if args and callable(args[0]):
+            return args[0]
+        return lambda f: f
+
 
 # --- database discovery -----------------------------------------------------
 def list_databases() -> list[dict]:
@@ -167,6 +175,7 @@ def _json_safe_rows(rows: list[tuple], limit: int = 200) -> list[list]:
 
 
 # --- main entry point -------------------------------------------------------
+@observe()
 def answer_query(
     question: str,
     db_id: str,
@@ -179,6 +188,7 @@ def answer_query(
     role: str | None = None,
     api_key: str | None = None,
     use_cache: bool = True,
+    provider_id: str | None = None,
 ) -> dict:
     """Run the full pipeline for one question and return a UI-ready result.
 
@@ -285,6 +295,7 @@ def answer_query(
             semantics=semantics_block,
             history=history,
             principal=principal,
+            provider_id=provider_id,
         )
     except Exception as e:  # noqa: BLE001
         return {
@@ -352,6 +363,7 @@ def answer_query(
             history=history,
             repair=(sql, execu.error or ""),
             principal=principal,
+            provider_id=provider_id,
         )
         _acc(turn.response)
         if turn.kind != "sql" or not turn.sql:

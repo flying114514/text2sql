@@ -1,28 +1,56 @@
-"""Observability: trace every LLM call (Phase 5).
+"""全链路观测 (Phase 5 + Langfuse v4).
 
-Each model call records one event — model, tokens, latency, estimated cost,
-ok/error — to a date-partitioned JSONL file under data/traces/. This is the
-local backend and is ALWAYS on: it needs no account and makes cost/latency
-auditable offline (see scripts/trace_report.py for a summary).
+Langfuse v4 使用 OpenTelemetry + @observe() 装饰器模式，自动创建 Trace→Span→Generation 层级:
+  - @observe() 最外层 → Trace
+  - @observe() 内层嵌套 → Span
+  - @observe(as_type="generation") → LLM Generation
 
-If Langfuse credentials are configured, each event is *also* sent to Langfuse
-(cloud UI) on a best-effort basis — failures there never affect the app. So the
-same instrumentation works with or without the cloud platform.
+三层设计:
+  1. 本地 JSONL  — 始终开启，零依赖，按天归档到 data/traces/
+  2. Langfuse   — .env 配置三行即可开启，@observe() 自动上报
+  3. 网关监控    — /api/gateway/metrics 提供 provider 级别聚合
+
+Trace 结构（自动生成）:
+  answer_query ("各城市GMV")
+    ├── converse ("llm_generate")
+    │   └── _call ("completion") [generation] → model + tokens + latency + cost
+    └── execute_sql
 """
 
 from __future__ import annotations
 
 import json
 import threading
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+from typing import Any
 
 from .config import DATA_DIR
-from .pricing import estimate_cost_for
 
 TRACES_DIR = DATA_DIR / "traces"
 _lock = threading.Lock()
 
 
+def langfuse_available() -> bool:
+    """LangFuse 是否已配置并可用。"""
+    from .config import settings
+    return settings.langfuse_ready()
+
+
+# ============================================================
+# 本地 JSONL 记录（始终开启）
+# ============================================================
+def _write_local(event: dict) -> None:
+    TRACES_DIR.mkdir(parents=True, exist_ok=True)
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    path = TRACES_DIR / f"llm-{day}.jsonl"
+    with _lock:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+# ============================================================
+# LLM 调用记录（核心观测点）
+# ============================================================
 def record_llm_call(
     *,
     kind: str,
@@ -36,14 +64,11 @@ def record_llm_call(
     price_in: float | None = None,
     price_out: float | None = None,
 ) -> dict:
-    """Record one LLM call to the local trace log (+ Langfuse if configured).
+    """记录一次 LLM 调用。本地 JSONL 始终写入；Langfuse 由 @observe 装饰器自动处理。"""
+    from .pricing import estimate_cost_for
 
-    `provider` (gateway-only) labels which registered provider served the call,
-    so reports can group by provider as well as by model. `price_in/out` let the
-    gateway cost a call at the model's own rate; omitted → global PRICE_IN/OUT.
-    """
     event = {
-        "ts": datetime.now(UTC).isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
         "kind": kind,
         "provider": provider,
         "model": model,
@@ -52,58 +77,32 @@ def record_llm_call(
         "total_tokens": prompt_tokens + completion_tokens,
         "latency_s": round(latency_s, 4),
         "cost_usd": round(
-            estimate_cost_for(
-                prompt_tokens, completion_tokens, price_in=price_in, price_out=price_out
-            ),
+            estimate_cost_for(prompt_tokens, completion_tokens, price_in=price_in, price_out=price_out),
             6,
         ),
         "ok": ok,
         "error": error,
     }
     _write_local(event)
-    _maybe_langfuse(event)
     return event
 
 
-def _write_local(event: dict) -> None:
-    TRACES_DIR.mkdir(parents=True, exist_ok=True)
-    day = datetime.now(UTC).strftime("%Y%m%d")
-    path = TRACES_DIR / f"llm-{day}.jsonl"
-    line = json.dumps(event, ensure_ascii=False)
-    with _lock:
-        with path.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-
-
-def _maybe_langfuse(event: dict) -> None:
-    """Best-effort forward to Langfuse; never raises into the caller."""
-    from .config import settings
-
-    if not settings.langfuse_ready():
+# ============================================================
+# 用户反馈打分（👍/👎 → Langfuse score）
+# ============================================================
+def record_feedback(question: str, rating: str, trace_id: str | None = None) -> None:
+    """将用户 👍/👎 作为 score 上报到 Langfuse。"""
+    if not langfuse_available():
         return
-    try:  # pragma: no cover - exercised only when credentials are present
-        from langfuse import Langfuse
-
-        client = Langfuse(
-            public_key=settings.langfuse_public_key,
-            secret_key=settings.langfuse_secret_key,
-            host=settings.langfuse_host,
-        )
-        client.generation(
-            name=event["kind"],
-            model=event["model"],
-            usage={
-                "input": event["prompt_tokens"],
-                "output": event["completion_tokens"],
-                "total": event["total_tokens"],
-            },
-            metadata={
-                "latency_s": event["latency_s"],
-                "cost_usd": event["cost_usd"],
-                "ok": event["ok"],
-                "error": event["error"],
-            },
+    try:
+        from langfuse import get_client
+        client = get_client()
+        value = 1.0 if rating == "up" else 0.0
+        client.create_score(
+            trace_id=trace_id,
+            name="user_feedback",
+            value=value,
+            comment=question,
         )
     except Exception:
-        # Observability must never break the application path.
         pass

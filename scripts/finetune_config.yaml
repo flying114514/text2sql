@@ -1,0 +1,50 @@
+# ============================================================
+# Text2SQL Agent — QLoRA 微调配置 (LLaMA-Factory)
+# ============================================================
+# 用法:
+#   llamafactory-cli train scripts/finetune_config.yaml
+#
+# 数据集由 export_training_data.py 自动生成。
+# 本文件由 auto_finetune.py 在运行前按实际数据量调整 rank/epochs。
+# ============================================================
+
+### 模型配置
+model_name_or_path: Qwen/Qwen2.5-Coder-1.5B-Instruct
+trust_remote_code: true
+
+### 训练方法
+stage: sft
+finetuning_type: lora
+lora_rank: 8                    # 数据<500条时用8，≥500条时auto_finetune.py自动改为16
+lora_alpha: 16                  # rank × 2
+lora_target: q_proj,v_proj,k_proj,o_proj   # 只训注意力层，避免灾难性遗忘
+lora_dropout: 0.05
+
+### 量化
+quantization_method: bitsandbytes
+quantization_bit: 4             # QLoRA: 4-bit NormalFloat
+double_quantization: true
+
+### 数据集
+dataset: text2sql_feedback      # 需在 LLaMA-Factory dataset_info.json 中注册
+template: qwen                  # Qwen2.5 原生 chat template
+cutoff_len: 4096                # 与 Ollama 模型 num_ctx 一致
+overwrite_cache: true
+preprocessing_num_workers: 2
+
+### 训练超参
+num_train_epochs: 3
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4    # 等效 batch_size = 4×4 = 16
+learning_rate: 2.0e-4
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+logging_steps: 10
+save_steps: 100
+save_total_limit: 2              # 只保留最近两个 checkpoint
+
+### 输出
+output_dir: data/finetune/checkpoints
+bf16: false                      # 不支持 bf16 的 GPU 用 fp16
+fp16: true
+report_to: none                  # 不上报 wandb/tensorboard

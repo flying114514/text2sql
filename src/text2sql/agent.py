@@ -21,6 +21,14 @@ from .models import ExecutionResult, SQLGeneration
 from .prompts import build_chat_messages, build_messages, build_repair_message
 from .schema import format_schema_for_prompt
 
+try:
+    from langfuse import observe
+except ImportError:
+    def observe(*args, **kwargs):
+        if args and callable(args[0]):
+            return args[0]
+        return lambda f: f
+
 
 @dataclass
 class AnswerResult:
@@ -81,6 +89,7 @@ def generate(
     *,
     tables: list[str] | None = None,
     examples: list[dict] | None = None,
+    provider_id: str | None = None,
 ) -> tuple[SQLGeneration, LLMResponse]:
     """Generate SQL and also return the raw LLM response (for token usage).
 
@@ -89,10 +98,12 @@ def generate(
     is provided (by a Phase 3 retriever), only those tables' DDL is sent —
     otherwise the full schema is dumped (the Phase 1 baseline). When `examples`
     is provided (Phase 4B few-shot), demonstrations are prepended.
+
+    provider_id 非空时强制使用网关中指定的 provider（供评测/微调对比使用）。
     """
     schema = format_schema_for_prompt(db_path, tables=tables)
     messages = build_messages(schema, question, examples=examples)
-    resp = complete(messages, json_mode=True)
+    resp = complete(messages, json_mode=True, provider_id=provider_id)
     return parse_generation(resp.content), resp
 
 
@@ -116,6 +127,7 @@ def generate_with_correction(
     tables: list[str] | None = None,
     examples: list[dict] | None = None,
     max_retries: int = 2,
+    provider_id: str | None = None,
 ) -> tuple[SQLGeneration | None, LLMResponse, ExecutionResult | None, CorrectionTrace]:
     """The Phase 4 agent loop: generate -> execute -> on error, repair, retry.
 
@@ -139,7 +151,7 @@ def generate_with_correction(
     last_content = ""
 
     for attempt in range(max_retries + 1):
-        resp = complete(messages, json_mode=True)
+        resp = complete(messages, json_mode=True, provider_id=provider_id)
         sum_in += resp.prompt_tokens
         sum_out += resp.completion_tokens
         last_content = resp.content
@@ -224,6 +236,7 @@ def _loads_json(raw: str) -> dict:
         return json.loads(cleaned[start : end + 1])
 
 
+@observe()
 def converse(
     question: str,
     db_path: str | Path,
@@ -234,6 +247,7 @@ def converse(
     history: list[dict] | None = None,
     repair: tuple[str, str] | None = None,
     principal=None,
+    provider_id=None,
 ) -> ConverseResult:
     """Conversational generation (P8): resolves follow-ups using `history`, and
     may return a clarifying question instead of SQL when the request is ambiguous.
@@ -255,7 +269,11 @@ def converse(
     )
     # principal is forwarded only when set, so callers/tests that mock `complete`
     # with the pre-P13 signature (no principal kwarg) keep working unchanged.
-    extra = {"principal": principal} if principal is not None else {}
+    extra = {}
+    if principal is not None:
+        extra["principal"] = principal
+    if provider_id is not None:
+        extra["provider_id"] = provider_id
     resp = complete(messages, json_mode=True, **extra)
     data = _loads_json(resp.content)
 

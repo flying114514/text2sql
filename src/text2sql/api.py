@@ -41,6 +41,7 @@ class AskRequest(BaseModel):
     history: list[dict] = Field(default_factory=list)
     role: str = ""
     use_cache: bool = True
+    provider_id: str | None = None
 
     model_config = {"populate_by_name": True}
 
@@ -80,6 +81,7 @@ def ask(
         history=req.history,
         role=req.role or None,
         api_key=x_api_key,
+        provider_id=req.provider_id,
         use_cache=req.use_cache,
     )
     return JSONResponse(result)

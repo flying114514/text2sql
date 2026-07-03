@@ -97,6 +97,7 @@ def run(
                     tables=selected,
                     examples=examples,
                     max_retries=max_retries,
+                    provider_id=args.provider_id,
                 )
                 pred_sql = gen.sql if gen else ""
                 attempts = trace.attempts
@@ -104,7 +105,8 @@ def run(
                     recovered += 1
             else:
                 gen, resp = generate(
-                    case.question, case.db_path, tables=selected, examples=examples
+                    case.question, case.db_path, tables=selected, examples=examples,
+                    provider_id=args.provider_id,
                 )
                 pred_sql = gen.sql
             sum_in += resp.prompt_tokens
@@ -259,6 +261,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--label", default=None, help="label for this run (defaults to dataset+schema)"
+    )
+    parser.add_argument(
+        "--provider-id",
+        default=None,
+        help="force a specific gateway provider (e.g. ollama-local) for model comparison",
     )
     args = parser.parse_args()
 
